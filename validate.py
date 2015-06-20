@@ -14,7 +14,7 @@ def parse(path='values.txt'):
     for line in f:
         if match(line) != None:
             #LIST.append((line[20:],datetime.datetime(int(line[0:4]), int(line[5:7]), int(line[8:10]), int(line[11:13]), int(line[14:16]), int(line[17:19]))))
-            append((line[15:16],line[0:14]))
+            append((line[14:15],line[0:14]))
             count += 1
             #if count % (1440*10) == 0:
             #    print (count)
@@ -30,5 +30,5 @@ LOG = parse('values.txt')
 LOG.sort(key = lambda x: x[1] )
 for i in range(len(LOG)-2):
     if LOG[i][1][0:12] == LOG[i+1][1][0:12]:
-        print (LOG[i][1], " ",LOG[i+1][1], " same!\n")
+        print (LOG[i][1],LOG[i][0], " ",LOG[i+1][1],LOG[i+1][0], " same!\n")
 
