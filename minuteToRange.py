@@ -4,6 +4,13 @@ to data on the form yyyy-mm-dd HH:MM:SS Changed state from %s to %s" % (oldstate
 where oldstate and state can be None, open or closed.
 The new data only writes when the state changes, unlike the old where the data is always logged.
 
+ONLY convert data point before 2015 09 12 15:06:03 (inclusive)
+
+A LOT of data is missing for only a minute (due to poor logging in the past)
+Need to correct theese intervals.
+
+Just scan the log for missing holes of data...
+
 Hans Koberg, 2015.
 
 """
@@ -20,6 +27,14 @@ def positive_int(val):
     except:
         raise ArgumentTypeError("'%s' is not a valid positive int" % val)
     return int(val)
+    
+def translate(name):
+    if name == "o":
+        return 'open'
+    elif name == "c":
+        return 'closed'
+    else:
+        return 'None'
 
 if __name__ == "__main__":
     reg = re.compile('^[0-9]{14}(o|c|e)$')
@@ -27,44 +42,83 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", help="output file to write output too")
     parser.add_argument("file", help="Input file")
     args = parser.parse_args()
-    #print("after while True")
-    endTime = datetime.datetime.now().replace(second=0,microsecond=0)
-    log = [['y',endTime - i*datetime.timedelta(minutes=1)] for i in range(args.timeSpan -1,-1,-1)]
-    #output = subprocess.check_output(["tail","-n",str(args.timeSpan+60),str(args.file)])
+    endTime = datetime.datetime.strptime("2015 09 12 15:06:00","%Y %m %d %H:%M:%S") # 2015 09 12 15:06:03
     
-    for line in output.decode("utf-8").split("\n"):
-        if reg.match(line) != None:
+    with open(args.file, 'r') as f:
+        for line in f:
+            if reg.match(line) == None:
+                continue
+            startTime = datetime.datetime.strptime(line[0:14],"%Y%m%d%H%M%S").replace(second=0,microsecond=0)
+            break
+    minutesToLog = int((endTime-startTime).total_seconds() // 60)
+    log = [['e',startTime + i*datetime.timedelta(minutes=1)] for i in range(0,minutesToLog+1)]
+    print("Log size is", len(log))
+    
+    endTimeCheck = endTime.replace(second=59,microsecond=0)
+    
+    with open(args.file, 'r') as f:
+        for line in f:
+            if reg.match(line) == None:
+                continue
             date = datetime.datetime.strptime(line[0:14],"%Y%m%d%H%M%S")
-            if date >= log[0][1]:
-                index = int((date-log[0][1]).total_seconds()) // 60
-                if line[14:15] == 'o':
-                    log[index][0] = 'green'
-                elif line[14:15] == 'c':
-                    log[index][0] = 'r'
-                #else: #use this if error values should differ from missing values
-                #    log[index][0] = 'yellow'
+            if date > endTimeCheck:
+                continue
+            index = int((date-startTime).total_seconds()) // 60
+            if line[14:15] == 'o':
+                log[index][0] = 'o'
+            elif line[14:15] == 'c':
+                log[index][0] = 'c'
+
+    print("Done reading in all values")
     
+    # The data contains missing values ("e") in a lot of places due to poor logging skills
+    # Fix it!
+    for i in range(1,len(log)-1):
+        if log[i][0] == "e" and log[i-1][0] == log[i+1][0]:
+            log[i][0] = log[i-1][0]
+         
+    print("Done filling error gaps of size 1")
     
-    #print("Start after read input")
-    #start = datetime.datetime.now()
+    compressedLog = ["%s Changed state from None to %s\n" % (log[0][1].strftime("%Y-%m-%d %H:%M:%S"),translate(log[0][0]))]
+    lastState = log[0][0]
+    last = True
+    counter = 0
+    occurenceOpen = [0] * 100000
+    occurenceClosed = [0] * 100000
+    occurenceError = [0] * 100000
     
-    #log is never empty
-    compressedLog = [log[0][1]]
-    colors = [log[0][0]]
-    widths = [1] #in fractions of days
-    tempWidths = 1
-    
-    for (color,date) in log:
-        if (color == colors[-1]):
-            #same state, can be compressed, continue.
-            tempWidths += 1
-            widths[-1] = tempWidths/(24*60) #interval lenght +1
+    for (state,date) in log:
+        if (state == lastState):
+            last = False
+            counter += 1
         else:
             #End the current streak
-            compressedLog.append(date)
-            widths.append(1/(24*60))
-            tempWidths = 1
-            colors.append(color)
+            compressedLog.append("%s Changed state from %s to %s\n" % (date.strftime("%Y-%m-%d %H:%M:%S"),translate(lastState),translate(state)))
+            if lastState == "o":
+                occurenceOpen[counter] += 1
+            elif lastState == "c":
+                occurenceClosed[counter] += 1
+            else:
+                occurenceError[counter] += 1
+                
+            lastState = state
+            last = True
+            
+            counter = 1
+            
+    print("open:", occurenceOpen[0:100])
+    print("closed:", occurenceClosed[0:100])
+    print("error:", occurenceError[0:100])
+    
+    #We might need to close the last range if it did not write a change at the endTime time.
+    if not last:
+        compressedLog.append("%s Changed state from %s to %s\n" % (endTime.strftime("%Y-%m-%d %H:%M:%S"),translate(lastState),"None"))
+    
+    print("Compressed log size is", len(compressedLog))
+
+    with open(args.output, 'w') as f:
+        for line in compressedLog:
+            f.write(line)
     
     
     
